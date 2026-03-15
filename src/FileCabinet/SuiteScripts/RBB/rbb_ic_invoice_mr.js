@@ -5,19 +5,25 @@
  *
  * RBB Intercompany Invoice – Map/Reduce Script
  *
+ * Rate lookup mirrors NetSuite's native time-based billing rule behaviour:
+ *   1. Exact employee match on the rate card line
+ *   2. Employee's Billing Class match (employee.billingclass)
+ *   3. Default line (no employee, no class specified)
+ *
+ * The native Billing Rate Card is read directly from job.billingratecard.
+ * Rate card lines are accessed via the 'billingratecardline' sublist on the
+ * billingratecard record (verify field IDs in the SuiteScript Records Browser
+ * if NetSuite version differences are encountered).
+ *
  * Workflow:
- *  getInputData  – searches for unbilled, approved, billable Time Bills for the
- *                  specified project within the requested period.
- *  map           – re-emits each time bill keyed by projectId so all entries for
- *                  a project arrive at the same reducer.
- *  reduce        – groups time bills by employee class, looks up the hourly rate
- *                  from the project's rate card, creates one NetSuite Invoice with
- *                  one line per class, then marks each Time Bill as billed.
- *  summarize     – logs results / errors and sends an optional notification email.
+ *  getInputData  – searches unbilled, approved, billable Time Bills in period
+ *  map           – keys each time bill by projectId; captures employee + billing class
+ *  reduce        – groups by billing class, applies rate card lookup, creates Invoice
+ *  summarize     – logs results and sends optional notification email
  *
  * Script Parameters:
  *   custscript_rbb_mr_project_id   – Internal ID of the Job (project) record
- *   custscript_rbb_mr_period_start – Billing period start date (MM/DD/YYYY or localised)
+ *   custscript_rbb_mr_period_start – Billing period start date
  *   custscript_rbb_mr_period_end   – Billing period end date
  *   custscript_rbb_mr_invoice_date – Invoice date
  *   custscript_rbb_mr_due_date     – Invoice due date
@@ -54,21 +60,22 @@ define([
     return search.create({
       type: search.Type.TIME_BILL,
       filters: [
-        ['customer',                'anyof', projectId],   // Job IS the customer on time bills
-        'AND', ['trandate',         'within',  periodStart, periodEnd],
-        'AND', ['isbillable',       'is',      'T'],
-        'AND', ['approvalstatus',   'anyof',   '2'],        // Approved
-        'AND', ['custbody_rbb_ic_billed', 'is', 'F'],       // Not yet billed
+        ['customer',                  'anyof', projectId],  // Job IS the customer on time bills
+        'AND', ['trandate',           'within', periodStart, periodEnd],
+        'AND', ['isbillable',         'is',     'T'],
+        'AND', ['approvalstatus',     'anyof',  '2'],        // Approved
+        'AND', ['custbody_rbb_ic_billed', 'is', 'F'],        // Not yet billed via this process
       ],
       columns: [
         'internalid',
         'employee',
-        'customer',   // the Job/project
+        'customer',  // the Job/project
         'trandate',
         'hours',
         'memo',
-        // Get the employee's class (role) via a join
-        search.createColumn({ name: 'class', join: 'employee' }),
+        // Billing Class is set on the employee record and used by NetSuite's
+        // own time-based billing rules to match against the rate card.
+        search.createColumn({ name: 'billingclass', join: 'employee' }),
       ],
     });
   };
@@ -78,26 +85,27 @@ define([
    * ═══════════════════════════════════════════════════════════════════════════ */
 
   const map = (context) => {
-    const result  = JSON.parse(context.value);
-    const vals    = result.values;
+    const result = JSON.parse(context.value);
+    const vals   = result.values;
 
-    // Employee class may be returned as an array or object depending on NS version
-    const classArr = vals['class.employee'];
-    const classId  = Array.isArray(classArr) ? (classArr[0] || {}).value : (classArr || {}).value || '';
-    const classText = Array.isArray(classArr) ? (classArr[0] || {}).text : (classArr || {}).text || '(No Class)';
+    // billingclass is returned as an array from the employee join
+    const bcArr          = vals['billingclass.employee'];
+    const billingClassId = Array.isArray(bcArr) ? (bcArr[0] || {}).value : (bcArr || {}).value || '';
+    const billingClassText = Array.isArray(bcArr) ? (bcArr[0] || {}).text : (bcArr || {}).text || '(No Billing Class)';
 
-    const projectId = Array.isArray(vals.customer) ? vals.customer[0].value : vals.customer.value;
+    const projectId  = Array.isArray(vals.customer) ? vals.customer[0].value : vals.customer.value;
+    const employeeId = Array.isArray(vals.employee) ? vals.employee[0].value : vals.employee.value;
 
     context.write({
       key:   String(projectId),
       value: JSON.stringify({
-        timebillId: result.id,
-        employeeId: Array.isArray(vals.employee) ? vals.employee[0].value : vals.employee.value,
-        classId,
-        classText,
-        hours:  parseFloat(vals.hours) || 0,
-        date:   vals.trandate,
-        memo:   vals.memo || '',
+        timebillId:      result.id,
+        employeeId:      String(employeeId),
+        billingClassId:  String(billingClassId),
+        billingClassText,
+        hours: parseFloat(vals.hours) || 0,
+        date:  vals.trandate,
+        memo:  vals.memo || '',
       }),
     });
   };
@@ -107,9 +115,9 @@ define([
    * ═══════════════════════════════════════════════════════════════════════════ */
 
   const reduce = (context) => {
-    const script      = runtime.getCurrentScript();
-    const projectId   = context.key;
-    const entries     = context.values.map((v) => JSON.parse(v));
+    const script    = runtime.getCurrentScript();
+    const projectId = context.key;
+    const entries   = context.values.map((v) => JSON.parse(v));
 
     const invoiceDateStr = script.getParameter({ name: 'custscript_rbb_mr_invoice_date' });
     const dueDateStr     = script.getParameter({ name: 'custscript_rbb_mr_due_date' });
@@ -119,38 +127,47 @@ define([
     log.audit({ title: 'reduce – start', details: `project=${projectId}, entries=${entries.length}` });
 
     // ── Load project ──────────────────────────────────────────────────────────
-    const proj       = record.load({ type: 'job', id: projectId });
-    const customerId = proj.getValue('customer');
-    const rateCardId = proj.getValue('custentity_rbb_rate_card');
+    const proj        = record.load({ type: 'job', id: projectId });
+    const customerId  = proj.getValue('customer');
+    const rateCardId  = proj.getValue('billingratecard'); // native Job field
 
     if (!rateCardId) {
-      const msg = `Project ${projectId} has no rate card assigned. Skipping.`;
+      const msg = `Project ${projectId} has no Billing Rate Card assigned. Skipping.`;
       log.error({ title: 'reduce – no rate card', details: msg });
       context.write({ key: projectId, value: JSON.stringify({ error: msg }) });
       return;
     }
 
-    // ── Load rate card lines ──────────────────────────────────────────────────
+    // ── Load native billing rate card lines ───────────────────────────────────
     const rateCardLines = loadRateCardLines(rateCardId);
     if (!rateCardLines.length) {
-      const msg = `Rate card ${rateCardId} has no lines. Skipping.`;
+      const msg = `Billing Rate Card ${rateCardId} has no lines. Skipping.`;
       log.error({ title: 'reduce – empty rate card', details: msg });
       context.write({ key: projectId, value: JSON.stringify({ error: msg }) });
       return;
     }
 
-    // ── Group entries by employee class ───────────────────────────────────────
-    const byClass = {};
+    // ── Group time bills by billing class (or by employee when class is absent) ─
+    // Group key: 'class:{billingClassId}' or 'emp:{employeeId}'
+    const groups = {};
     entries.forEach((e) => {
-      const key = e.classId || '__NONE__';
-      if (!byClass[key]) byClass[key] = { classId: e.classId, classText: e.classText, hours: 0, timebillIds: [] };
-      byClass[key].hours += e.hours;
-      byClass[key].timebillIds.push(e.timebillId);
+      const key = e.billingClassId ? `class:${e.billingClassId}` : `emp:${e.employeeId}`;
+      if (!groups[key]) {
+        groups[key] = {
+          billingClassId:   e.billingClassId,
+          billingClassText: e.billingClassText,
+          employeeId:       e.employeeId,
+          hours:            0,
+          timebillIds:      [],
+        };
+      }
+      groups[key].hours += e.hours;
+      groups[key].timebillIds.push(e.timebillId);
     });
 
     // ── Create the intercompany invoice ───────────────────────────────────────
     const inv = record.create({ type: record.Type.INVOICE, isDynamic: true });
-    inv.setValue({ fieldId: 'entity',  value: customerId });
+    inv.setValue({ fieldId: 'entity',   value: customerId });
     inv.setValue({ fieldId: 'trandate', value: format.parse({ value: invoiceDateStr, type: format.Type.DATE }) });
     inv.setValue({ fieldId: 'duedate',  value: format.parse({ value: dueDateStr,     type: format.Type.DATE }) });
     if (memo)    inv.setValue({ fieldId: 'memo',    value: memo });
@@ -159,21 +176,26 @@ define([
     const invoicedTimebillIds = [];
     let hasLines = false;
 
-    Object.values(byClass).forEach(({ classId, classText, hours, timebillIds }) => {
-      const line = rateCardLines.find((l) => l.classId === classId);
+    Object.values(groups).forEach(({ billingClassId, billingClassText, employeeId, hours, timebillIds }) => {
+      // Priority: employee match → billing class match → default
+      const line = findRate(rateCardLines, employeeId, billingClassId);
       if (!line) {
         log.error({
-          title:   'reduce – no rate for class',
-          details: `classId=${classId} (${classText}) not found in rate card ${rateCardId}. Hours skipped.`,
+          title:   'reduce – no rate found',
+          details: `No rate card line matched: employee=${employeeId}, billingClass=${billingClassId} (${billingClassText}). Hours skipped.`,
         });
         return;
       }
+
+      const lineLabel = billingClassText !== '(No Billing Class)'
+        ? billingClassText
+        : `Employee ${employeeId}`;
 
       inv.selectNewLine({ sublistId: 'item' });
       inv.setCurrentSublistValue({ sublistId: 'item', fieldId: 'item',        value: line.serviceItemId });
       inv.setCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity',    value: roundHours(hours) });
       inv.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate',        value: line.hourlyRate });
-      inv.setCurrentSublistValue({ sublistId: 'item', fieldId: 'description', value: `${classText} – ${proj.getValue('companyname')}` });
+      inv.setCurrentSublistValue({ sublistId: 'item', fieldId: 'description', value: `${lineLabel} – ${proj.getValue('companyname')}` });
       inv.commitLine({ sublistId: 'item' });
 
       invoicedTimebillIds.push(...timebillIds);
@@ -181,7 +203,7 @@ define([
     });
 
     if (!hasLines) {
-      const msg = 'No matching rate card lines found for any employee class. Invoice not created.';
+      const msg = 'No rate card lines matched any billing class. Invoice not created.';
       log.error({ title: 'reduce – no lines', details: msg });
       context.write({ key: projectId, value: JSON.stringify({ error: msg }) });
       return;
@@ -199,7 +221,7 @@ define([
           values: { custbody_rbb_ic_billed: true },
         });
       } catch (e) {
-        log.error({ title: `reduce – mark billed failed for tb ${tbId}`, details: e.message });
+        log.error({ title: `reduce – mark billed failed tb ${tbId}`, details: e.message });
       }
     });
 
@@ -214,8 +236,8 @@ define([
    * ═══════════════════════════════════════════════════════════════════════════ */
 
   const summarize = (context) => {
-    const script       = runtime.getCurrentScript();
-    const notifyEmail  = script.getParameter({ name: 'custscript_rbb_mr_notify_email' });
+    const script      = runtime.getCurrentScript();
+    const notifyEmail = script.getParameter({ name: 'custscript_rbb_mr_notify_email' });
 
     const results = [];
     const errors  = [];
@@ -241,10 +263,10 @@ define([
     if (notifyEmail) {
       try {
         const lines = [
-          `Intercompany invoice generation complete.`,
+          'Intercompany invoice generation complete.',
           '',
           `Invoices created: ${results.length}`,
-          ...results.map((r) => `  • Project ${r.project} → Invoice ID ${r.invoiceId} (${r.billedEntries} entries)`),
+          ...results.map((r) => `  • Project ${r.project} → Invoice ID ${r.invoiceId} (${r.billedEntries} time entries)`),
         ];
         if (errors.length) {
           lines.push('', `Errors (${errors.length}):`);
@@ -267,31 +289,55 @@ define([
    * ═══════════════════════════════════════════════════════════════════════════ */
 
   /**
-   * Load all rate card lines for a given rate card.
-   * Returns: [{ classId, serviceItemId, hourlyRate }]
+   * Load lines from the native NetSuite Billing Rate Card record.
+   *
+   * Sublist ID:  'billingratecardline'
+   * Field IDs:   'employee', 'class', 'item', 'rate'
+   *
+   * If your NS version uses different field IDs, verify them in the
+   * SuiteScript Records Browser (Help > SuiteScript Records Browser >
+   * search 'billingratecard').
+   *
+   * Returns: [{ employeeId, billingClassId, serviceItemId, hourlyRate }]
    */
   const loadRateCardLines = (rateCardId) => {
     const lines = [];
-    search.create({
-      type: 'customrecord_rbb_rate_card_line',
-      filters: [['custrecord_rbb_rcl_rate_card', 'anyof', rateCardId]],
-      columns: [
-        'custrecord_rbb_rcl_employee_class',
-        'custrecord_rbb_rcl_service_item',
-        'custrecord_rbb_rcl_hourly_rate',
-      ],
-    }).run().each((result) => {
+    const rc = record.load({ type: 'billingratecard', id: rateCardId });
+    const lineCount = rc.getLineCount({ sublistId: 'billingratecardline' });
+
+    for (let i = 0; i < lineCount; i++) {
+      const employeeId     = rc.getSublistValue({ sublistId: 'billingratecardline', fieldId: 'employee', line: i });
+      const billingClassId = rc.getSublistValue({ sublistId: 'billingratecardline', fieldId: 'class',    line: i });
+      const serviceItemId  = rc.getSublistValue({ sublistId: 'billingratecardline', fieldId: 'item',     line: i });
+      const rate           = rc.getSublistValue({ sublistId: 'billingratecardline', fieldId: 'rate',     line: i });
+
       lines.push({
-        classId:       result.getValue('custrecord_rbb_rcl_employee_class'),
-        serviceItemId: result.getValue('custrecord_rbb_rcl_service_item'),
-        hourlyRate:    parseFloat(result.getValue('custrecord_rbb_rcl_hourly_rate')) || 0,
+        employeeId:     employeeId     ? String(employeeId)     : null,
+        billingClassId: billingClassId ? String(billingClassId) : null,
+        serviceItemId,
+        hourlyRate: parseFloat(rate) || 0,
       });
-      return true;
-    });
+    }
+
+    log.debug({ title: 'loadRateCardLines', details: `rateCard=${rateCardId}, lines=${lines.length}` });
     return lines;
   };
 
-  /** Round hours to 2 decimal places (quarter-hour granularity is typical). */
+  /**
+   * Find the best-matching rate card line for a given employee / billing class.
+   * Mirrors NetSuite's native time-based billing rule priority:
+   *   1. Exact employee match
+   *   2. Employee billing class match (no employee specified on line)
+   *   3. Default line (no employee, no class)
+   */
+  const findRate = (lines, employeeId, billingClassId) => (
+    lines.find((l) => l.employeeId     && l.employeeId     === String(employeeId))     ||
+    lines.find((l) => !l.employeeId    && l.billingClassId && l.billingClassId === String(billingClassId)) ||
+    lines.find((l) => !l.employeeId    && !l.billingClassId) ||
+    null
+  );
+
+  /** Round hours to 2 decimal places. */
   const roundHours = (h) => Math.round(h * 100) / 100;
 
   return { getInputData, map, reduce, summarize };

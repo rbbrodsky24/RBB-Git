@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest projecttype="ACCOUNTCUSTOMIZATION">
+  <projectname>RBB Intercompany Project Billing</projectname>
+  <frameworkversion>1.0</frameworkversion>
+  <dependencies>
+    <features>
+      <feature required="true">PROJECTS</feature>
+      <feature required="true">TIMETRACKING</feature>
+      <feature required="true">MULTISUBSIDIARY</feature>
+    </features>
+  </dependencies>
+</manifest>

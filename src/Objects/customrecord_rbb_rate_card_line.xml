@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  RBB Rate Card Line – one row per Employee Class / Role within a Rate Card.
+  The employee class on a Time Bill is matched against these lines to derive
+  the hourly rate and the service item used on the intercompany invoice.
+-->
+<customrecordtype scriptid="customrecord_rbb_rate_card_line">
+  <name>RBB Rate Card Line</name>
+  <recordname>Rate Card Line</recordname>
+  <enablesearch>T</enablesearch>
+  <isinactive>F</isinactive>
+  <customrecordcustomfields>
+
+    <!-- Parent rate card -->
+    <customrecordcustomfield scriptid="custrecord_rbb_rcl_rate_card">
+      <fieldtype>SELECT</fieldtype>
+      <label>Rate Card</label>
+      <selectrecordtype>customrecord_rbb_rate_card</selectrecordtype>
+      <ismandatory>T</ismandatory>
+    </customrecordcustomfield>
+
+    <!-- Employee Class (Classification record) – maps to the class on Time Bills -->
+    <customrecordcustomfield scriptid="custrecord_rbb_rcl_employee_class">
+      <fieldtype>SELECT</fieldtype>
+      <label>Employee Class / Role</label>
+      <selectrecordtype>-101</selectrecordtype>   <!-- -101 = Classification -->
+      <ismandatory>T</ismandatory>
+    </customrecordcustomfield>
+
+    <!-- Service Item used on the generated invoice line -->
+    <customrecordcustomfield scriptid="custrecord_rbb_rcl_service_item">
+      <fieldtype>SELECT</fieldtype>
+      <label>Service Item</label>
+      <selectrecordtype>-10</selectrecordtype>    <!-- -10 = Service Items -->
+      <ismandatory>T</ismandatory>
+    </customrecordcustomfield>
+
+    <!-- Hourly billing rate in the rate card's currency -->
+    <customrecordcustomfield scriptid="custrecord_rbb_rcl_hourly_rate">
+      <fieldtype>CURRENCY</fieldtype>
+      <label>Hourly Rate</label>
+      <ismandatory>T</ismandatory>
+    </customrecordcustomfield>
+
+  </customrecordcustomfields>
+</customrecordtype>

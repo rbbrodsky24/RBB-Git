@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customscript scriptid="customscript_rbb_ic_invoice_mr">
+  <name>RBB IC Invoice Map/Reduce</name>
+  <scripttype>MAPREDUCESCRIPT</scripttype>
+  <description>Aggregates unbilled time entries by employee class, applies rate card rates, and creates intercompany invoices.</description>
+  <scriptfile>[/SuiteScripts/RBB/rbb_ic_invoice_mr.js]</scriptfile>
+  <notifyadmins>T</notifyadmins>
+  <notifyowner>T</notifyowner>
+
+  <!-- Script Parameters -->
+  <scriptcustomfields>
+    <scriptcustomfield scriptid="custscript_rbb_mr_project_id">
+      <fieldtype>INTEGER</fieldtype>
+      <label>Project Internal ID</label>
+      <ismandatory>T</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_period_start">
+      <fieldtype>DATE</fieldtype>
+      <label>Period Start</label>
+      <ismandatory>T</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_period_end">
+      <fieldtype>DATE</fieldtype>
+      <label>Period End</label>
+      <ismandatory>T</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_invoice_date">
+      <fieldtype>DATE</fieldtype>
+      <label>Invoice Date</label>
+      <ismandatory>T</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_due_date">
+      <fieldtype>DATE</fieldtype>
+      <label>Due Date</label>
+      <ismandatory>T</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_tax_code">
+      <fieldtype>TEXT</fieldtype>
+      <label>Tax Code Internal ID</label>
+      <ismandatory>F</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_memo">
+      <fieldtype>TEXT</fieldtype>
+      <label>Invoice Memo</label>
+      <ismandatory>F</ismandatory>
+    </scriptcustomfield>
+    <scriptcustomfield scriptid="custscript_rbb_mr_notify_email">
+      <fieldtype>EMAIL</fieldtype>
+      <label>Notify Email</label>
+      <ismandatory>F</ismandatory>
+    </scriptcustomfield>
+  </scriptcustomfields>
+
+  <scriptdeployments>
+    <scriptdeployment scriptid="customdeploy_rbb_ic_invoice_mr">
+      <title>RBB IC Invoice Generation</title>
+      <status>RELEASED</status>
+      <isdeployed>T</isdeployed>
+      <loglevel>DEBUG</loglevel>
+    </scriptdeployment>
+  </scriptdeployments>
+</customscript>

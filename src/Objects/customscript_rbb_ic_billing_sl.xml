@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customscript scriptid="customscript_rbb_ic_billing_sl">
+  <name>RBB IC Billing Suitelet</name>
+  <scripttype>SUITELET</scripttype>
+  <description>Intercompany project billing UI – project setup, time entry, rate card management and invoice generation trigger.</description>
+  <scriptfile>[/SuiteScripts/RBB/rbb_ic_billing_sl.js]</scriptfile>
+  <notifyadmins>F</notifyadmins>
+  <notifyemails></notifyemails>
+  <notifyowner>T</notifyowner>
+  <scriptdeployments>
+    <scriptdeployment scriptid="customdeploy_rbb_ic_billing_sl">
+      <title>RBB IC Billing</title>
+      <status>RELEASED</status>
+      <isdeployed>T</isdeployed>
+      <allroles>T</allroles>
+      <loglevel>DEBUG</loglevel>
+    </scriptdeployment>
+  </scriptdeployments>
+</customscript>

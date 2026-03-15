@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Entity custom field on the Job (Project) record.
+  Points to the RBB Rate Card that governs billing for this project.
+-->
+<entitycustomfield scriptid="custentity_rbb_rate_card">
+  <fieldtype>SELECT</fieldtype>
+  <label>Rate Card</label>
+  <selectrecordtype>customrecord_rbb_rate_card</selectrecordtype>
+  <ismandatory>F</ismandatory>
+  <appliestojob>T</appliestojob>
+  <appliestocustomer>F</appliestocustomer>
+  <appliestocontact>F</appliestocontact>
+  <appliestoemployee>F</appliestoemployee>
+  <appliestopartner>F</appliestopartner>
+  <appliestovendor>F</appliestovendor>
+  <setHelpText>Rate card defining the hourly billing rate per employee class for this project.</setHelpText>
+</entitycustomfield>

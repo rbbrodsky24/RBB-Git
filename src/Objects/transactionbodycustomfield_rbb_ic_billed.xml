@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Transaction Body Custom Field on Time Bill records.
+  Set to TRUE by the Map/Reduce script after the time entry is included on
+  an intercompany invoice, preventing double-billing.
+-->
+<transactionbodycustomfield scriptid="custbody_rbb_ic_billed">
+  <fieldtype>CHECKBOX</fieldtype>
+  <label>IC Billed</label>
+  <defaultchecked>F</defaultchecked>
+  <ismandatory>F</ismandatory>
+  <appliestotype>
+    <appliestotype_type>TIME</appliestotype_type>
+  </appliestotype>
+</transactionbodycustomfield>

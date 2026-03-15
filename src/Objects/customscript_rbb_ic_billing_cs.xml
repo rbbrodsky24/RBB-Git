@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customscript scriptid="customscript_rbb_ic_billing_cs">
+  <name>RBB IC Billing Client Script</name>
+  <scripttype>CLIENTSCRIPT</scripttype>
+  <description>Client-side validation and dynamic field behaviour for the IC Billing Suitelet forms.</description>
+  <scriptfile>[/SuiteScripts/RBB/rbb_ic_billing_cs.js]</scriptfile>
+  <notifyadmins>F</notifyadmins>
+  <notifyowner>T</notifyowner>
+  <scriptdeployments>
+    <scriptdeployment scriptid="customdeploy_rbb_ic_billing_cs">
+      <title>RBB IC Billing CS</title>
+      <status>RELEASED</status>
+      <isdeployed>T</isdeployed>
+      <loglevel>DEBUG</loglevel>
+    </scriptdeployment>
+  </scriptdeployments>
+</customscript>
